@@ -1,0 +1,238 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Controle Alex</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial;background:#f1f4f9;color:#182b45}
+header{background:#142b49;color:white;padding:24px}
+header h1{margin:0}
+nav{display:flex;gap:10px;padding:15px;flex-wrap:wrap}
+button{border:0;border-radius:8px;padding:12px 17px;background:#245b98;color:white;cursor:pointer}
+button.active{background:#142b49}
+main{max-width:950px;margin:auto;padding:15px}
+.card{background:white;padding:20px;border-radius:12px;margin-bottom:15px;box-shadow:0 2px 10px #0000000c}
+input,select,textarea{width:100%;padding:12px;border:1px solid #ccd5e1;border-radius:7px;margin:7px 0 15px;font-size:16px}
+label{font-weight:bold;font-size:14px}
+h2{margin-top:0}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.stat{background:#eaf1fa;padding:17px;border-radius:10px}
+.stat strong{display:block;font-size:24px;margin-top:8px}
+.hidden{display:none}
+.item{border-bottom:1px solid #ddd;padding:12px 0}
+small{color:#63758b}
+</style>
+</head>
+<body>
+<header>
+<h1>CONTROLE ALEX</h1>
+<p>Gestão de despesas</p>
+</header>
+
+<main>
+<section id="login" class="card">
+<h2>Acesso ao sistema</h2>
+<label>E-mail</label>
+<input id="email" type="email" placeholder="E-mail cadastrado">
+<label>Senha</label>
+<input id="password" type="password" placeholder="Sua senha">
+<button onclick="entrar()">Entrar</button>
+<p id="loginMsg"></p>
+</section>
+
+<section id="app" class="hidden">
+<nav>
+<button id="btnDash" class="active" onclick="aba('dashboard')">Dashboard</button>
+<button id="btnLanc" onclick="aba('lancamento')">Lançar despesa</button>
+<button onclick="sair()">Sair</button>
+</nav>
+
+<section id="dashboard">
+<div class="card">
+<h2>Dashboard mensal</h2>
+<label>Mês de consulta</label>
+<input id="mes" type="month" onchange="carregar()">
+<div class="stats">
+<div class="stat">Total do mês<strong id="total">R$ 0,00</strong></div>
+<div class="stat">Lançamentos<strong id="quantidade">0</strong></div>
+</div>
+</div>
+<div class="card">
+<h2>Totais por categoria</h2>
+<div id="categorias"></div>
+</div>
+<div class="card">
+<h2>Histórico de lançamentos</h2>
+<div id="historico"></div>
+</div>
+</section>
+
+<section id="lancamento" class="hidden">
+<div class="card">
+<h2>Novo lançamento</h2>
+<form id="form">
+<label>Categoria</label>
+<select id="categoria" required>
+<option value="">Selecione uma opção</option>
+<option>Combustível</option>
+<option>Alimentação</option>
+<option>Pedágio</option>
+<option>Passagem rua funcionário</option>
+<option>Compras (limpeza)</option>
+<option>Compras (alimentação)</option>
+</select>
+
+<label>Data</label>
+<input id="data" type="date" required>
+
+<label>Valor (R$)</label>
+<input id="valor" type="number" min="0.01" step="0.01" placeholder="0,00" required>
+
+<label>Local da despesa</label>
+<input id="local" placeholder="Informe o local">
+
+<label>Observações</label>
+<textarea id="observacoes" placeholder="Detalhes adicionais"></textarea>
+
+<label>Comprovante (foto ou PDF)</label>
+<input id="arquivo" type="file" accept="image/*,.pdf">
+
+<button type="submit">Salvar lançamento</button>
+<p id="msg"></p>
+</form>
+</div>
+</section>
+</section>
+</main>
+
+<script>
+// Configure com os dados do seu projeto Supabase
+const SUPABASE_URL = "COLOQUE_SUA_URL";
+const SUPABASE_KEY = "COLOQUE_SUA_CHAVE_ANON";
+
+const db = supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+let registros = [];
+
+const moeda = n => Number(n).toLocaleString("pt-BR",{
+ style:"currency",currency:"BRL"
+});
+
+async function entrar(){
+ const {data,error}=await db.auth.signInWithPassword({
+  email:document.getElementById("email").value,
+  password:document.getElementById("password").value
+ });
+ if(error){
+  document.getElementById("loginMsg").textContent=error.message;
+  return;
+ }
+ iniciar();
+}
+
+async function iniciar(){
+ document.getElementById("login").classList.add("hidden");
+ document.getElementById("app").classList.remove("hidden");
+ document.getElementById("mes").value=new Date().toISOString().slice(0,7);
+ document.getElementById("data").value=new Date().toISOString().slice(0,10);
+ await carregar();
+}
+
+async function sair(){
+ await db.auth.signOut();
+ location.reload();
+}
+
+function aba(nome){
+ document.getElementById("dashboard").classList.toggle("hidden",nome!=="dashboard");
+ document.getElementById("lancamento").classList.toggle("hidden",nome!=="lancamento");
+ document.getElementById("btnDash").classList.toggle("active",nome==="dashboard");
+ document.getElementById("btnLanc").classList.toggle("active",nome==="lancamento");
+ if(nome==="dashboard") carregar();
+}
+
+async function carregar(){
+ const mes=document.getElementById("mes").value;
+ if(!mes)return;
+ const inicio=mes+"-01";
+ const fim=new Date(Number(mes.slice(0,4)),Number(mes.slice(5,7)),0)
+  .toISOString().slice(0,10);
+
+ const {data,error}=await db.from("despesas")
+  .select("*").gte("data",inicio).lte("data",fim)
+  .order("data",{ascending:false});
+
+ if(error){alert(error.message);return}
+ registros=data||[];
+
+ const total=registros.reduce((s,r)=>s+Number(r.valor),0);
+ document.getElementById("total").textContent=moeda(total);
+ document.getElementById("quantidade").textContent=registros.length;
+
+ const grupos={};
+ registros.forEach(r=>{
+  grupos[r.categoria]=(grupos[r.categoria]||0)+Number(r.valor);
+ });
+
+ document.getElementById("categorias").innerHTML=
+  Object.entries(grupos).map(([nome,valor])=>
+   `<div class="item"><b>${nome}</b><br>${moeda(valor)}</div>`
+  ).join("")||"Nenhuma despesa registrada.";
+
+ document.getElementById("historico").innerHTML=
+  registros.map(r=>`
+   <div class="item">
+   <b>${r.categoria}</b> — ${moeda(r.valor)}<br>
+   <small>${r.data} • ${r.local||"Local não informado"}</small>
+   ${r.observacoes?`<p>${r.observacoes}</p>`:""}
+   ${r.comprovante?`<a href="${r.comprovante}" target="_blank">Ver comprovante</a>`:""}
+   </div>
+  `).join("")||"Nenhum lançamento neste mês.";
+}
+
+document.getElementById("form").addEventListener("submit",async e=>{
+ e.preventDefault();
+ const msg=document.getElementById("msg");
+ msg.textContent="Salvando...";
+
+ let comprovante=null;
+ const arquivo=document.getElementById("arquivo").files[0];
+
+ if(arquivo){
+  const ext=arquivo.name.split(".").pop();
+  const caminho=crypto.randomUUID()+"."+ext;
+  const {error}=await db.storage.from("comprovantes")
+   .upload(caminho,arquivo);
+  if(error){msg.textContent="Erro no anexo: "+error.message;return}
+  const {data}=await db.storage.from("comprovantes")
+   .createSignedUrl(caminho,3600);
+  comprovante=data?.signedUrl||null;
+ }
+
+ const registro={
+  categoria:document.getElementById("categoria").value,
+  data:document.getElementById("data").value,
+  valor:Number(document.getElementById("valor").value),
+  local:document.getElementById("local").value,
+  observacoes:document.getElementById("observacoes").value,
+  comprovante
+ };
+
+ const {error}=await db.from("despesas").insert(registro);
+ if(error){msg.textContent="Erro: "+error.message;return}
+
+ msg.textContent="Despesa salva com sucesso!";
+ e.target.reset();
+ document.getElementById("data").value=new Date().toISOString().slice(0,10);
+ await carregar();
+});
+
+db.auth.getSession().then(({data})=>{
+ if(data.session) iniciar();
+});
+</script>
+</body>
+</html>
